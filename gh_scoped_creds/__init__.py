@@ -8,7 +8,7 @@ import time
 import requests
 
 
-def do_authenticate_device_flow(client_id, in_jupyter=False):
+def do_authenticate_device_flow(client_id, github_host, in_jupyter=False):
     """
     Authenticate user with given GitHub app using GitHub OAuth Device flow
 
@@ -19,7 +19,7 @@ def do_authenticate_device_flow(client_id, in_jupyter=False):
     access_code will have scopes defined in the GitHub app
     """
     verification_resp = requests.post(
-        "https://github.com/login/device/code",
+        f"https://{github_host}/login/device/code",
         data={"client_id": client_id, "scope": "repo"},
         headers={"Accept": "application/json"},
     ).json()
@@ -48,7 +48,7 @@ def do_authenticate_device_flow(client_id, in_jupyter=False):
         time.sleep(verification_resp["interval"])
         print(".", end="", flush=True)
         access_resp = requests.post(
-            "https://github.com/login/oauth/access_token",
+            f"https://{github_host}/login/oauth/access_token",
             data={
                 "client_id": client_id,
                 "device_code": verification_resp["device_code"],
@@ -77,6 +77,13 @@ def main(args=None, in_jupyter=False):
         URL where users can install & grant repo access to the app
         """.strip(),
     )
+    argparser.add_argument(
+        "--github-host",
+        default=os.environ.get("GH_SCOPED_CREDS_GITHUB_HOST", "github.com"),
+        help="""
+            URL where users can install & grant repo access to the app
+            """.strip(),
+    )
 
     args = argparser.parse_args(args)
 
@@ -87,11 +94,11 @@ def main(args=None, in_jupyter=False):
         )
         sys.exit(1)
 
-    access_token, expires_in = do_authenticate_device_flow(args.client_id, in_jupyter)
+    access_token, expires_in = do_authenticate_device_flow(args.client_id, args.github_host, in_jupyter)
 
     # Create a secure temporary file and write the creds to it
     with tempfile.NamedTemporaryFile(delete=False, mode="w+") as f:
-        f.write(f"https://x-access-token:{access_token}@github.com\n")
+        f.write(f"https://x-access-token:{access_token}@{args.github_host}\n")
         f.flush()
 
         # Tell git to use our new creds when talking to github
@@ -100,7 +107,7 @@ def main(args=None, in_jupyter=False):
                 "git",
                 "config",
                 "--global",  # Modifies ~/.gitconfig
-                "credential.https://github.com.helper",
+                f"credential.https://{args.github_host}.helper",
                 f"store --file={f.name}",
             ]
         )
@@ -149,3 +156,7 @@ try:
 
 except ImportError:
     pass
+
+if __name__ == "__main__":
+    # If we're not in IPython, just run the main function
+    main(args=sys.argv[1:], in_jupyter=False)
